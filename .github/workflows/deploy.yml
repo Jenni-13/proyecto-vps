@@ -30,17 +30,26 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Setup Node.js & dependencies
+      # --- Node Setup con Caching (Soluciona Error 500) ---
+      
+      - name: Setup Node.js 18
         uses: actions/setup-node@v3
         with:
           node-version: 18
       
-      - name: Run tests (Supertest)
+      # 🚨 2. CACHE: Configurar el caché de dependencias
+      - name: Cache Node Modules
+        uses: actions/cache@v3
+        id: npm-cache-backend
+        with:
+          path: backend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('backend/package-lock.json') }}
+      
+      # 🚨 3. INSTALAR Y PROBAR: Solo instala si la caché falló (o es la primera vez)
+      - name: Install dependencies (npm ci) and Run tests
         run: |
           cd backend
-          # Limpia el caché de npm (por si acaso) y luego usa --prefer-offline=false
-          npm cache clean --force
-          npm ci --prefer-offline=false --no-cache # 🚨 Corrección: Deshabilitar caché y forzar red
+          npm ci
           npm test
 
       # --- 🐳 Configuración y Subida a GHCR ---
@@ -52,24 +61,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }} 
 
-      # 🚨 2. Build y Push Backend (usando el Output) 🚨
+      # 🚨 4. Build y Push Backend (usando el Output) 🚨
       - name: Build and Push Backend Image
         uses: docker/build-push-action@v4
         with:
           context: ./backend
           push: true
           file: ./backend/Dockerfile
-          # ¡NO hay 'lower' aquí! Solo usamos el output del paso anterior
           tags: ghcr.io/${{ steps.get_repo_info.outputs.full_repo_path }}/backend:${{ github.sha }}
 
-      # 🚨 3. Build y Push Frontend (usando el Output) 🚨
+      # 🚨 5. Build y Push Frontend (usando el Output) 🚨
       - name: Build and Push Frontend Image
         uses: docker/build-push-action@v4
         with:
           context: ./frontend
           push: true
           file: ./frontend/Dockerfile
-          # ¡NO hay 'lower' aquí!
           tags: ghcr.io/${{ steps.get_repo_info.outputs.full_repo_path }}/frontend:${{ github.sha }}
 
       # --- 🚀 Despliegue a VPS (Blue-Green) ---
@@ -84,14 +91,13 @@ jobs:
             # Moverse al directorio del proyecto
             cd ~/Proyecto-vps
 
-            # SINCRONIZACIÓN DE CÓDIGO
+            # SINCRONIZACIÓN DE CÓDIGO (Importante para obtener la versión corregida del docker-compose)
             git pull origin main
             
             # Asegurar que el Nginx proxy esté corriendo
             docker compose up -d nginx
 
-            # 🚨 4. EXPORTAR VARIABLES (usando el Output) 🚨
-            # ¡NO hay 'lower' aquí!
+            # 🚨 6. EXPORTAR VARIABLES (usando el Output) 🚨
             export GH_REPO=${{ steps.get_repo_info.outputs.full_repo_path }}
             export IMAGE_TAG=${{ github.sha }}
             
