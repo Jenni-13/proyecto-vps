@@ -13,7 +13,7 @@ jobs:
       packages: write 
       
     steps:
-      # 🚨 1. PASO CLAVE: CALCULAR LA RUTA COMPLETA EN MINÚSCULAS 🚨
+      # 🚨 1. PASO CLAVE: CALCULAR LA RUTA COMPLETA EN MINÚSCULAS CON BASH 🚨
       - name: Get Lowercase Repository Info
         id: get_repo_info
         run: |
@@ -50,24 +50,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }} 
 
-      # 🚨 2. Build y Push Backend (usando el Output del paso) 🚨
+      # 🚨 2. Build y Push Backend (usando el Output) 🚨
       - name: Build and Push Backend Image
         uses: docker/build-push-action@v4
         with:
           context: ./backend
           push: true
           file: ./backend/Dockerfile
-          # Usamos el output que ya está garantizado en minúsculas: jenni-13/proyecto-vps
+          # ¡NO hay 'lower' aquí! Solo usamos el output del paso anterior
           tags: ghcr.io/${{ steps.get_repo_info.outputs.full_repo_path }}/backend:${{ github.sha }}
 
-      # 🚨 3. Build y Push Frontend (usando el Output del paso) 🚨
+      # 🚨 3. Build y Push Frontend (usando el Output) 🚨
       - name: Build and Push Frontend Image
         uses: docker/build-push-action@v4
         with:
           context: ./frontend
           push: true
           file: ./frontend/Dockerfile
-          # Usamos el output que ya está garantizado en minúsculas
+          # ¡NO hay 'lower' aquí!
           tags: ghcr.io/${{ steps.get_repo_info.outputs.full_repo_path }}/frontend:${{ github.sha }}
 
       # --- 🚀 Despliegue a VPS (Blue-Green) ---
@@ -89,6 +89,7 @@ jobs:
             docker compose up -d nginx
 
             # 🚨 4. EXPORTAR VARIABLES (usando el Output) 🚨
+            # ¡NO hay 'lower' aquí!
             export GH_REPO=${{ steps.get_repo_info.outputs.full_repo_path }}
             export IMAGE_TAG=${{ github.sha }}
             
