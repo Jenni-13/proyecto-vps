@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: 18
       
-      # 🚨 2. CACHE: Configurar el caché de dependencias
+      # 🚨 2. CACHE: Configurar el caché de dependencias (Solo Backend)
       - name: Cache Node Modules
         uses: actions/cache@v3
         id: npm-cache-backend
@@ -45,12 +45,19 @@ jobs:
           path: backend/node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('backend/package-lock.json') }}
       
-      # 🚨 3. INSTALAR Y PROBAR: Solo instala si la caché falló (o es la primera vez)
+      # 🚨 3. INSTALAR Y PROBAR: Backend
       - name: Install dependencies (npm ci) and Run tests
         run: |
           cd backend
           npm ci
           npm test
+
+      # 🚨 4. COMPILACIÓN: Instalar dependencias y compilar el FRONTEND (Crea 'dist')
+      - name: Install Frontend dependencies and Build
+        run: |
+          cd frontend
+          npm ci
+          npm run build # ¡Crea la carpeta dist/ necesaria para el Dockerfile!
 
       # --- 🐳 Configuración y Subida a GHCR ---
       
@@ -61,7 +68,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }} 
 
-      # 🚨 4. Build y Push Backend (usando el Output) 🚨
+      # 🚨 5. Build y Push Backend
       - name: Build and Push Backend Image
         uses: docker/build-push-action@v4
         with:
@@ -70,7 +77,7 @@ jobs:
           file: ./backend/Dockerfile
           tags: ghcr.io/${{ steps.get_repo_info.outputs.full_repo_path }}/backend:${{ github.sha }}
 
-      # 🚨 5. Build y Push Frontend (usando el Output) 🚨
+      # 🚨 6. Build y Push Frontend (Ahora la carpeta 'dist/' existe)
       - name: Build and Push Frontend Image
         uses: docker/build-push-action@v4
         with:
@@ -91,17 +98,17 @@ jobs:
             # Moverse al directorio del proyecto
             cd ~/Proyecto-vps
 
-            # SINCRONIZACIÓN DE CÓDIGO (Importante para obtener la versión corregida del docker-compose)
+            # SINCRONIZACIÓN DE CÓDIGO
             git pull origin main
             
             # Asegurar que el Nginx proxy esté corriendo
             docker compose up -d nginx
 
-            # 🚨 6. EXPORTAR VARIABLES (usando el Output) 🚨
+            # 🚨 7. EXPORTAR VARIABLES
             export GH_REPO=${{ steps.get_repo_info.outputs.full_repo_path }}
             export IMAGE_TAG=${{ github.sha }}
             
-            # Login en el VPS (necesario para el Pull)
+            # Login en el VPS
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
             # 1. Detección de color activo (Blue-Green)
@@ -120,10 +127,10 @@ jobs:
 
             echo "Despliegue a color: ${NEW_COLOR}"
 
-            # 2. Pull de la nueva imagen (usa la imagen subida con el SHA)
+            # 2. Pull de la nueva imagen
             docker compose pull ${NEW_BACKEND} ${NEW_FRONTEND}
             
-            # 3. Levantar nuevo contenedor (El compose usa las variables exportadas)
+            # 3. Levantar nuevo contenedor
             docker compose up -d ${NEW_BACKEND} ${NEW_FRONTEND}
             
             # 4. Esperar la salud del nuevo contenedor
