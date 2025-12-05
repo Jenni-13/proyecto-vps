@@ -12,9 +12,9 @@ jobs:
       contents: read
       packages: write 
     
-    # 🚨 1. AQUÍ INSERTA LA VARIABLE DE ENTORNO EN MINÚSCULAS 🚨
+    # 🚨 1. CORRECCIÓN: Definir variable en minúsculas (soluciona 'Unrecognized function' y 'lowercase')
     env:
-      REPO_LOWER: ${{ toLower(github.repository) }} 
+      REPO_LOWER: ${{ lower(github.repository) }} 
       
     steps:
       - name: Checkout repo
@@ -28,7 +28,7 @@ jobs:
       - name: Run tests (Supertest)
         run: |
           cd backend
-          npm ci # Instalar dependencias
+          npm ci 
           npm test
 
       # --- 🐳 Configuración y Subida a GHCR ---
@@ -40,7 +40,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }} 
 
-      # 🚨 2. CONSTRUIR Y SUBIR BACKEND (usando la variable REPO_LOWER) 🚨
+      # 🚨 2. CORRECCIÓN: Construir y Subir Backend (usando la variable REPO_LOWER) 🚨
       - name: Build and Push Backend Image
         uses: docker/build-push-action@v4
         with:
@@ -49,7 +49,7 @@ jobs:
           file: ./backend/Dockerfile # Ruta a tu Dockerfile de backend
           tags: ghcr.io/${{ env.REPO_LOWER }}/backend:${{ github.sha }}
 
-      # 🚨 3. CONSTRUIR Y SUBIR FRONTEND (usando la variable REPO_LOWER) 🚨
+      # 🚨 3. CORRECCIÓN: Construir y Subir Frontend (usando la variable REPO_LOWER) 🚨
       - name: Build and Push Frontend Image
         uses: docker/build-push-action@v4
         with:
@@ -70,20 +70,21 @@ jobs:
             # Moverse al directorio del proyecto
             cd ~/Proyecto-vps
 
-            # 🚨 4. SINCRONIZACIÓN DE CÓDIGO 🚨
+            # 🚨 4. SINCRONIZACIÓN: Obtener los archivos corregidos (docker-compose.yml y confs)
+            # NOTA: Esto fallará si no has resuelto el conflicto de Git primero.
             git pull origin main
             
             # Asegurar que el Nginx proxy esté corriendo
             docker compose up -d nginx
 
-            # 🚨 5. EXPORTAR VARIABLE EN MINÚSCULAS 🚨
+            # 🚨 5. EXPORTAR VARIABLES (En minúsculas) para Docker Compose 🚨
             export GH_REPO=${{ env.REPO_LOWER }}
             export IMAGE_TAG=${{ github.sha }}
             
             # Login en el VPS (necesario para el Pull)
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # 1. Detección de color activo (tu lógica)
+            # 1. Detección de color activo (Blue-Green)
             if docker ps --filter "name=backend_blue" | grep backend_blue; then
               NEW_COLOR=green
               OLD_COLOR=blue
@@ -102,7 +103,7 @@ jobs:
             # 2. Pull de la nueva imagen (usa la imagen subida con el SHA)
             docker compose pull ${NEW_BACKEND} ${NEW_FRONTEND}
             
-            # 3. Levantar nuevo contenedor (El compose ya tiene las variables)
+            # 3. Levantar nuevo contenedor (El compose usa las variables exportadas)
             docker compose up -d ${NEW_BACKEND} ${NEW_FRONTEND}
             
             # 4. Esperar la salud del nuevo contenedor
