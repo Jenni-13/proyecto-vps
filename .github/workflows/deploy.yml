@@ -36,20 +36,29 @@ jobs:
       uses: appleboy/ssh-action@v0.1.9
       with:
         host: ${{ secrets.VPS_IP }}
-        username: ubuntu
+        username: ${{ secrets.VPS_USER }}
         key: ${{ secrets.VPS_KEY }}
         script: |
           cd ~/Proyecto-vps
-          # Alternar entre blue y green
-          if [ "$(docker ps -q -f name=backend_blue)" != "" ]; then
+
+          # Detectar contenedor actual
+          if docker ps --filter "name=backend_blue" | grep backend_blue; then
             NEW_BACKEND=backend_green
             OLD_BACKEND=backend_blue
+            NEW_FRONTEND=frontend_green
+            OLD_FRONTEND=frontend_blue
           else
             NEW_BACKEND=backend_blue
             OLD_BACKEND=backend_green
+            NEW_FRONTEND=frontend_blue
+            OLD_FRONTEND=frontend_green
           fi
 
-          docker compose up -d $NEW_BACKEND frontend_$NEW_BACKEND
-          # Actualizar Nginx alias backend_current (puedes usar un symlink o reconfiguración)
+          # Levantar nuevo contenedor
+          docker compose up -d $NEW_BACKEND $NEW_FRONTEND
+
+          # Actualizar Nginx y recargar
           docker exec nginx_proxy nginx -s reload
-          docker stop $OLD_BACKEND frontend_$OLD_BACKEND
+
+          # Apagar contenedores antiguos
+          docker stop $OLD_BACKEND $OLD_FRONTEND || true
