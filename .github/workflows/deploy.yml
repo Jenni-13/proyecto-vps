@@ -1,4 +1,4 @@
-name: CI/CD Blue-Green
+name: Deploy Proyecto VPS
 
 on:
   push:
@@ -6,44 +6,50 @@ on:
       - main
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: 🔹 Clonar repo
+    - name: Checkout repo
       uses: actions/checkout@v3
 
-    - name: 🔹 Conectar al VPS por SSH
-      uses: appleboy/ssh-action@v0.1.10
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
       with:
-        host: ${{ secrets.VPS_HOST }}
-        username: ${{ secrets.VPS_USER }}
+        node-version: 18
+
+    - name: Install dependencies
+      run: |
+        cd backend
+        npm ci
+
+    - name: Run tests
+      run: |
+        cd backend
+        npm test
+
+    - name: Build Docker images
+      run: |
+        docker compose build
+
+    - name: Deploy to VPS (Blue-Green)
+      uses: appleboy/ssh-action@v0.1.9
+      with:
+        host: ${{ secrets.VPS_IP }}
+        username: ubuntu
         key: ${{ secrets.VPS_KEY }}
         script: |
-          cd /home/${{ secrets.VPS_USER }}/mini-proyecto
-
-          # Determinar contenedor activo
-          ACTIVE=$(docker ps --filter "name=app_blue" -q)
-
-          if [ "$ACTIVE" ]; then
-            NEW=green
-            OLD=blue
+          cd ~/Proyecto-vps
+          # Alternar entre blue y green
+          if [ "$(docker ps -q -f name=backend_blue)" != "" ]; then
+            NEW_BACKEND=backend_green
+            OLD_BACKEND=backend_blue
           else
-            NEW=blue
-            OLD=green
+            NEW_BACKEND=backend_blue
+            OLD_BACKEND=backend_green
           fi
 
-          echo "Desplegando nueva versión: $NEW"
-
-          git pull
-
-          docker-compose up --build -d app_$NEW
-
-          echo "Probando nueva versión..."
-          sleep 5
-
-          curl -f http://localhost:3000 || exit 1
-
-          echo "Nueva versión OK, activando..."
-
-          docker-compose stop app_$OLD
+          docker compose up -d $NEW_BACKEND frontend_$NEW_BACKEND
+          # Actualizar Nginx alias backend_current (puedes usar un symlink o reconfiguración)
+          docker exec nginx_proxy nginx -s reload
+          docker stop $OLD_BACKEND frontend_$OLD_BACKEND
