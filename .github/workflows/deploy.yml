@@ -8,57 +8,101 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
+    permissions:
+      # Necesario para subir y descargar de ghcr.io
+      contents: read
+      packages: write 
+      
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: 18
+      - name: Setup Node.js & dependencies
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      
+      # Correr Pruebas (asumiendo que están en la carpeta backend)
+      - name: Run tests (Supertest)
+        run: |
+          cd backend
+          npm ci # Instalar dependencias
+          npm test
 
-    - name: Install dependencies
-      run: |
-        cd backend
-        npm ci
+      # --- 🐳 Configuración y Subida a GHCR ---
+      
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # Usar el token por defecto (GITHUB_TOKEN)
+          password: ${{ secrets.GITHUB_TOKEN }} 
 
-    - name: Run tests
-      run: |
-        cd backend
-        npm test
+      - name: Build and Push Docker images
+        uses: docker/build-push-action@v4
+        with:
+          context: . # Contexto: La raíz del proyecto
+          push: true
+          # Tags para las imágenes de Backend y Frontend
+          tags: |
+            ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
+          # Especificar los Dockerfiles correctos para multi-stage build o multi-servicios
+          file: ./Dockerfile # Asume un solo Dockerfile. Si tienes varios, necesitas múltiples 'build-push-action'
+          # Nota: Si tienes un Dockerfile por carpeta (backend/Dockerfile, frontend/Dockerfile),
+          # necesitarás dos pasos 'Build and Push' distintos, uno para cada servicio.
 
-    - name: Build Docker images
-      run: |
-        docker compose build
+      # --- 🚀 Despliegue a VPS (Blue-Green) ---
+      
+      - name: Deploy to VPS (Blue-Green)
+        uses: appleboy/ssh-action@v0.1.9
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_KEY }}
+          script: |
+            # Moverse al directorio del proyecto
+            cd ~/Proyecto-vps
 
-    - name: Deploy to VPS (Blue-Green)
-      uses: appleboy/ssh-action@v0.1.9
-      with:
-        host: ${{ secrets.VPS_IP }}
-        username: ${{ secrets.VPS_USER }}
-        key: ${{ secrets.VPS_KEY }}
-        script: |
-          cd ~/Proyecto-vps
+            # Exportar variables para el docker-compose.yml
+            export GH_REPO=${{ github.repository }}
+            export IMAGE_TAG=${{ github.sha }}
+            
+            # Login en el VPS (necesario para el Pull)
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # 1. Detección de color activo (tu lógica)
+            if docker ps --filter "name=backend_blue" | grep backend_blue; then
+              NEW_COLOR=green
+              OLD_COLOR=blue
+            else
+              NEW_COLOR=blue
+              OLD_COLOR=green
+            fi
+            
+            NEW_BACKEND=backend_${NEW_COLOR}
+            NEW_FRONTEND=frontend_${NEW_COLOR}
+            OLD_BACKEND=backend_${OLD_COLOR}
+            OLD_FRONTEND=frontend_${OLD_COLOR}
 
-          # Detectar contenedor actual
-          if docker ps --filter "name=backend_blue" | grep backend_blue; then
-            NEW_BACKEND=backend_green
-            OLD_BACKEND=backend_blue
-            NEW_FRONTEND=frontend_green
-            OLD_FRONTEND=frontend_blue
-          else
-            NEW_BACKEND=backend_blue
-            OLD_BACKEND=backend_green
-            NEW_FRONTEND=frontend_blue
-            OLD_FRONTEND=frontend_green
-          fi
+            echo "Despliegue a color: ${NEW_COLOR}"
 
-          # Levantar nuevo contenedor
-          docker compose up -d $NEW_BACKEND $NEW_FRONTEND
+            # 2. Pull de la nueva imagen (usa la imagen subida con el SHA)
+            docker compose pull ${NEW_BACKEND} ${NEW_FRONTEND}
+            
+            # 3. Levantar nuevo contenedor (El compose ya tiene las variables)
+            docker compose up -d ${NEW_BACKEND} ${NEW_FRONTEND}
+            
+            # 4. Esperar la salud del nuevo contenedor (CRÍTICO antes de cambiar el tráfico)
+            sleep 15
+            
+            # 5. 🚨 CRÍTICO: Aplicar la nueva configuración de Nginx (Switch de tráfico)
+            # Copiar el archivo de configuración del nuevo color (blue.conf o green.conf) al default.conf
+            cp ~/Proyecto-vps/nginx/${NEW_COLOR}.conf ~/Proyecto-vps/nginx/default.conf
 
-          # Actualizar Nginx y recargar
-          docker exec nginx_proxy nginx -s reload
-
-          # Apagar contenedores antiguos
-          docker stop $OLD_BACKEND $OLD_FRONTEND || true
+            # 6. Actualizar Nginx y recargar
+            docker exec nginx_proxy nginx -s reload
+            
+            # 7. Apagar contenedores antiguos
+            docker stop ${OLD_BACKEND} ${OLD_FRONTEND} || true
