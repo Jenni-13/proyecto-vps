@@ -36,23 +36,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }} 
 
-      # 🚨 1. CONSTRUIR Y SUBIR BACKEND (El repo ya está en minúsculas) 🚨
+      # 🚨 1. CORRECCIÓN: Build y Push Backend (dueño y repo en minúsculas) 🚨
       - name: Build and Push Backend Image
         uses: docker/build-push-action@v4
         with:
           context: ./backend
           push: true
           file: ./backend/Dockerfile
-          tags: ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
+          # La clave: convertir el DUEÑO del repositorio a minúsculas
+          tags: ghcr.io/${{ lower(github.repository_owner) }}/${{ github.repository }}/backend:${{ github.sha }}
 
-      # 🚨 2. CONSTRUIR Y SUBIR FRONTEND (El repo ya está en minúsculas) 🚨
+      # 🚨 2. CORRECCIÓN: Build y Push Frontend (dueño y repo en minúsculas) 🚨
       - name: Build and Push Frontend Image
         uses: docker/build-push-action@v4
         with:
           context: ./frontend
           push: true
           file: ./frontend/Dockerfile
-          tags: ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
+          # La clave: convertir el DUEÑO del repositorio a minúsculas
+          tags: ghcr.io/${{ lower(github.repository_owner) }}/${{ github.repository }}/frontend:${{ github.sha }}
 
       # --- 🚀 Despliegue a VPS (Blue-Green) ---
       
@@ -66,14 +68,14 @@ jobs:
             # Moverse al directorio del proyecto
             cd ~/Proyecto-vps
 
-            # SINCRONIZACIÓN DE CÓDIGO (¡Crucial para que este .yml funcione!)
+            # SINCRONIZACIÓN DE CÓDIGO (Para obtener este .yml corregido y los .conf)
             git pull origin main
             
             # Asegurar que el Nginx proxy esté corriendo
             docker compose up -d nginx
 
-            # 🚨 3. EXPORTAR VARIABLES (Directamente, ya están bien) 🚨
-            export GH_REPO=${{ github.repository }}
+            # 🚨 3. CORRECCIÓN: EXPORTAR GH_REPO (dueño y repo en minúsculas) 🚨
+            export GH_REPO=${{ lower(github.repository_owner) }}/${{ github.repository }}
             export IMAGE_TAG=${{ github.sha }}
             
             # Login en el VPS (necesario para el Pull)
